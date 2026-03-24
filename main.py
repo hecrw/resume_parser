@@ -1,12 +1,18 @@
-from fastapi import FastAPI
-from pdf2image import convert_from_path
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
-from ollama import chat
 import uuid
 import os
+import shutil
+from typing import Annotated, List, Dict, Optional
+from tempfile import NamedTemporaryFile
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+
+from pdf2image import convert_from_path
+from pydantic import BaseModel, Field
+from ollama import chat
 
 app = FastAPI()
+
+
 
 class WorkExperience(BaseModel):
     jobTitle: Optional[str] = None
@@ -88,3 +94,25 @@ def llm_parser(image_paths: list[str]):
 
     resume = ResumeData.model_validate_json(response.message.content)
     return resume
+
+
+@app.post("/parse_resume/")
+async def upload_pdf(file: UploadFile = File(...)):
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    try:
+        with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_path = temp_file.name
+            image_paths = convert_pdf_2_images(temp_path)
+            resume = llm_parser(image_paths)
+        return {
+            "message": "PDF uploaded successfully",
+            "content": resume
+        }
+
+    finally:
+        file.file.close()
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)

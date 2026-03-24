@@ -11,5 +11,6 @@ dependencies = [
     "poppler-utils>=0.1.0",
     "pydantic>=2.12.5",
     "pypdf>=6.9.2",
+    "python-multipart>=0.0.22",
     "uvicorn>=0.42.0",
 ]
