@@ -80,7 +80,7 @@ def llm_parser(image_paths: list[str]):
     - Capture every work experience and education entry
     """
     response = chat(
-        model="qwen3-vl:4b",
+        model="qwen2.5-vl:3b",
         format=ResumeData.model_json_schema(),
         messages=[
             {
