@@ -64,7 +64,7 @@ def convert_pdf_2_images(pdf_path: str) -> list[str]:
     pages = convert_from_path(pdf_path, 500, output_folder=output, fmt='JPEG')
     paths = []
     for file in os.listdir(output):
-        paths.append(os.path.join("outputs",file))
+        paths.append(os.path.join(output, file))
     return paths
 
 def llm_parser(image_paths: list[str]):
