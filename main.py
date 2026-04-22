@@ -86,7 +86,7 @@ def llm_parser(image_paths: list[str]) -> ResumeData:
     """
 
     response = chat(
-        model="ministral-3:8b",
+        model="qwen3.5:9b",
         format=ResumeData.model_json_schema(),
         messages=[
             {

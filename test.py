@@ -1,13 +1,13 @@
-# import requests
+import requests
 
-# url = "http://127.0.0.1:8000/parse_resume/"
-# file_path = "test.pdf"
+url = "http://127.0.0.1:8000/parse_resume/"
+file_path = "test.pdf"
 
-# with open(file_path, "rb") as f:
-#     files = {"file": (file_path, f, "application/pdf")}
-#     response = requests.post(url, files=files)
+with open(file_path, "rb") as f:
+    files = {"file": (file_path, f, "application/pdf")}
+    response = requests.post(url, files=files)
 
-# print(response.json())
+print(response.json())
 
 # from pathlib import Path
 # from paddleocr import PPStructureV3
