@@ -56,7 +56,7 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     """Extract text from PDF. Falls back to OCR if pages appear empty."""
     text_parts = []
     needs_ocr = False
-    print("test")
+    print(pdf_path)
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text() or ""
@@ -121,7 +121,6 @@ async def upload_pdf(file: UploadFile = File(...)):
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             shutil.copyfileobj(file.file, temp_file)
             temp_path = temp_file.name
-            print("test")
         resume_text = extract_text_from_pdf(temp_path)
 
         if not resume_text.strip():
