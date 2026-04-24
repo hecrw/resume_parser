@@ -85,7 +85,7 @@ RESUME TEXT:
 structure_pipeline = PPStructureV3(
     device="gpu",
     lang="en",
-    use_doc_orientation_classify=False,
+    use_doc_orientation_classify=True,
     use_doc_unwarping=False,
     use_chart_recognition=False,
     use_formula_recognition=False,
