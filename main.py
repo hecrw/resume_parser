@@ -1,23 +1,35 @@
 import os
 from functools import wraps
 from typing import List, Dict, Optional
+from pdf2image import convert_from_path
+import tempfile
 from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from paddleocr import PPStructureV3
 from pydantic import BaseModel, Field
 from ollama import chat
 import time
+import asyncio
 
 def timer(func):
-    @wraps
-    def wrapper(*args, **kwargs):
+    @wraps(func)
+    async def async_wrapper(*args, **kwargs):
         start = time.time()
-        result=func(*args, **kwargs)
+        result = await func(*args, **kwargs)
         end = time.time()
-        print(f"time taken to extract data from the resume {(end - start):.2f}")
+        print(f"time taken: {(end - start):.2f}s", flush=True)
         return result
 
-    return wrapper
+    @wraps(func)
+    def sync_wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"time taken: {(end - start):.2f}s", flush=True)
+        return result
+
+    return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+
 app = FastAPI()
         
 class WorkExperience(BaseModel):
@@ -93,15 +105,13 @@ RESUME TEXT:
 structure_pipeline = PPStructureV3(
     device="gpu",
     lang="en",
+    text_recognition_model_name="PP-OCRv5_server_rec",
     use_doc_orientation_classify=True,
     use_doc_unwarping=False,
     use_chart_recognition=False,
     use_formula_recognition=False,
     use_seal_recognition=False,
 )
-
-from pdf2image import convert_from_path
-import tempfile
 
 def extract_text_from_pdf(pdf_path: str) -> str:
     page_images = convert_from_path(pdf_path, dpi=200)
