@@ -59,7 +59,7 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            print(page)
+            print("page")
             page_text = page.extract_text() or ""
             if len(page_text.strip()) < 50:
                 needs_ocr = True
