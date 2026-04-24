@@ -75,31 +75,19 @@ class ResumeData(BaseModel):
 def llm_parser(resume_text: str) -> ResumeData:
     prompt = f"""You are a resume parser. Extract all information from the resume text below into JSON matching the schema.
 
-    The text below was extracted by OCR from a PDF, so expect these imperfections:
-    - Words may be merged (e.g. "teamof8" means "team of 8", "DevisedGTM" means "Devised GTM")
-    - Letters may be swapped or wrong (e.g. "Skils" = "Skills", "Reguirements" = "Requirements", "Linkedln" = "LinkedIn")
-    - Dates may appear separately from their job/education entry — match them to the nearest relevant section above or below
-    - Multi-column layouts may interleave content (e.g. sidebar skills appearing between job bullets)
-    - Job titles and section headings are often marked with "##" in the text
-
-    When extracting:
-    - Clean up obvious OCR typos silently (do not preserve them in the output)
-    - If a job title appears as a heading near a company name, use it — do not leave jobTitle null
-    - If dates appear near a job (before, after, or on a separate line), associate them with that job
-    - Only use null when information is truly absent from the text, not when it looks messy
-
     Rules:
-    - Keep dates as written, cleaned up (e.g. "2019-11", "Present")
+    - Keep dates as written (e.g. "Jan 2020", "2020-01", "Present")
     - skills, languages, hobbies must be flat string arrays
     - Capture every work experience and education entry
     - responsibilities should be individual bullet points, not one long string
 
+    Keep in mind this text has been extracted by ocr so some format might be broken
     RESUME TEXT:
     {resume_text}
     """
 
     response = chat(
-        model="qwen3.5:9b",
+        model="qwen2.5:14b",
         format=ResumeData.model_json_schema(),
         messages=[{"role": "user", "content": prompt}],
         options={
