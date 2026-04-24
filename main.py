@@ -92,14 +92,39 @@ structure_pipeline = PPStructureV3(
     use_seal_recognition=False,
 )
 
+from pdf2image import convert_from_path
+from PIL import Image
+import tempfile
+
 def extract_text_from_pdf(pdf_path: str) -> str:
-    output = structure_pipeline.predict(input=pdf_path)
-    pages = []
-    for res in output:
-        md = res.markdown
-        text = md.get("markdown_texts") or md.get("markdown_text") or ""
-        pages.append(text)
-    return "\n\n".join(pages)
+    pages = convert_from_path(pdf_path, dpi=200)
+    if not pages:
+        return ""
+
+    width = max(p.width for p in pages)
+    total_height = sum(p.height for p in pages)
+    stitched = Image.new("RGB", (width, total_height), "white")
+    y = 0
+    for p in pages:
+        stitched.paste(p, (0, y))
+        y += p.height
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+        stitched_path = f.name
+    stitched.save(stitched_path)
+    print(f"Stitched image: {stitched.size}, saved to {stitched_path}", flush=True)
+
+    try:
+        output = structure_pipeline.predict(input=stitched_path)
+        pages_text = []
+        for res in output:
+            md = res.markdown
+            text = md.get("markdown_texts") or md.get("markdown_text") or ""
+            pages_text.append(text)
+        return "\n\n".join(pages_text)
+    finally:
+        if os.path.exists(stitched_path):
+            os.remove(stitched_path)
 
 
 @app.post("/parse_resume/")
