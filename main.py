@@ -124,9 +124,20 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     temp_path = None
     try:
+        await file.seek(0)
+        content = await file.read()
+        
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            shutil.copyfileobj(file.file, temp_file)
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
             temp_path = temp_file.name
+
+        print(f"Temp file size: {os.path.getsize(temp_path)} bytes", flush=True)
+        
         resume_text = extract_text_from_pdf(temp_path)
 
         if not resume_text.strip():
@@ -136,6 +147,5 @@ async def upload_pdf(file: UploadFile = File(...)):
         return {"message": "PDF parsed successfully", "content": resume}
 
     finally:
-        file.file.close()
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
