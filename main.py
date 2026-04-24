@@ -148,8 +148,8 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     print("\n\n---\n\n".join(all_pages_text))
     return "\n\n---\n\n".join(all_pages_text)
 
-@timer
 @app.post("/parse_resume/")
+@timer
 async def upload_pdf(file: UploadFile = File(...)):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
