@@ -5,17 +5,22 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "chandra-ocr[app,hf]",
     "fastapi>=0.136.0",
     "ollama>=0.6.1",
     "pdf2image>=1.17.0",
 ]
 
 [[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
 name = "paddle-gpu"
-url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"  # or cu118
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
 explicit = true
 
 [tool.uv.sources]
-chandra-ocr = { git = "https://github.com/datalab-to/chandra.git" }
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 paddlepaddle-gpu = { index = "paddle-gpu" }
