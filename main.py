@@ -74,25 +74,18 @@ class ResumeData(BaseModel):
 
 def llm_parser(resume_text: str) -> ResumeData:
     prompt = f"""You are a resume parser. Extract all information from the resume text below into JSON matching the schema.
-
-    Rules:
-    - Keep dates as written (e.g. "Jan 2020", "2020-01", "Present")
-    - skills, languages, hobbies must be flat string arrays
-    - Capture every work experience and education entry
-    - responsibilities should be individual bullet points, not one long string
-
-    Keep in mind this text has been extracted by ocr so some format might be broken
+    some fields might be synonoms of others so make sure you are aware of those
     RESUME TEXT:
     {resume_text}
     """
 
     response = chat(
-        model="qwen2.5:7b",
+        model="ministral-3:8b",
         format=ResumeData.model_json_schema(),
         messages=[{"role": "user", "content": prompt}],
         options={
             "temperature": 0,
-            "num_ctx": 8192,
+            "num_ctx": 16384,
         },
     )
 
