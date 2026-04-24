@@ -8,7 +8,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
 from ollama import chat
-import pdfplumber
 
 app = FastAPI()
 
@@ -52,29 +51,28 @@ class ResumeData(BaseModel):
     additionalInfo: Dict[str, str] = Field(default_factory=dict)
 
 
+from pypdf import PdfReader
+
 def extract_text_from_pdf(pdf_path: str) -> str:
+    """Extract text from PDF. Falls back to OCR if pages appear empty."""
     text_parts = []
     needs_ocr = False
-    print(f"Opening PDF: {pdf_path}")
     
-    with pdfplumber.open(pdf_path) as pdf:
-        print(f"Number of pages: {len(pdf.pages)}")
-        for i, page in enumerate(pdf.pages):
-            page_text = page.extract_text() or ""
-            print(f"Page {i+1}: {len(page_text)} chars extracted")
-            print(f"Preview: {page_text[:200]!r}")
-            if len(page_text.strip()) < 50:
-                needs_ocr = True
-            text_parts.append(page_text)
+    reader = PdfReader(pdf_path)
+    print(f"PDF has {len(reader.pages)} pages", flush=True)
+    
+    for i, page in enumerate(reader.pages):
+        page_text = page.extract_text() or ""
+        print(f"Page {i+1}: {len(page_text)} chars", flush=True)
+        if len(page_text.strip()) < 50:
+            needs_ocr = True
+        text_parts.append(page_text)
 
     if needs_ocr:
-        print("Falling back to OCR...")
+        print("Falling back to OCR", flush=True)
         return ocr_pdf(pdf_path)
 
-    result = "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
-    print(f"Total extracted text: {len(result)} chars")
-    return result
-
+    return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
 
 def ocr_pdf(pdf_path: str) -> str:
     """OCR fallback for scanned PDFs."""
@@ -119,29 +117,14 @@ RESUME TEXT:
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
-    
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     temp_path = None
-    with open(temp_path, "rb") as f:
-        header = f.read(8)
-    print(f"File header: {header!r}", flush=True)
     try:
-        await file.seek(0)
-        content = await file.read()
-        
-        if not content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
-        
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(content)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
+            shutil.copyfileobj(file.file, temp_file)
             temp_path = temp_file.name
-
-        print(f"Temp file size: {os.path.getsize(temp_path)} bytes", flush=True)
-        
         resume_text = extract_text_from_pdf(temp_path)
 
         if not resume_text.strip():
@@ -151,5 +134,6 @@ async def upload_pdf(file: UploadFile = File(...)):
         return {"message": "PDF parsed successfully", "content": resume}
 
     finally:
+        file.file.close()
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
