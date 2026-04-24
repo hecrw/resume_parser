@@ -96,9 +96,17 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     output = structure_pipeline.predict(input=pdf_path)
     markdown_list = [res.markdown for res in output]
     result = structure_pipeline.concatenate_markdown_pages(markdown_list)
-    print(f"Type: {type(result)}", flush=True)
-    print(f"Attrs: {dir(result)}", flush=True)
-    return result
+    
+    if isinstance(result, str):
+        return result
+    
+    for key in ("markdown_texts", "markdown_text", "text", "markdown"):
+        if key in result:
+            value = result[key]
+            if isinstance(value, str):
+                return value
+    
+    return str(result)
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
