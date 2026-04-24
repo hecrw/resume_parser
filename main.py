@@ -105,8 +105,39 @@ def llm_parser(resume_text: str) -> ResumeData:
 structure_pipeline = PPStructureV3(
     device="gpu",
     lang="en",
-    use_doc_orientation_classify=True,
-    use_doc_unwarping=False,
+
+    # ── LAYOUT DETECTION ─────────────────────────────────────
+    # Best layout model — handles multi-column docs well
+    layout_detection_model_name="PP-DocLayout_plus-L",
+    layout_threshold=0.3,              # default 0.5; lower catches narrow sidebars
+    layout_nms=True,
+    layout_unclip_ratio=1.05,           # slight expansion so text near box edges isn't clipped
+    layout_merge_bboxes_mode="large",   # default; "union" if you see sidebars being eaten
+
+    # ── TEXT DETECTION ───────────────────────────────────────
+    text_detection_model_name="PP-OCRv5_server_det",  # higher accuracy than mobile
+    text_det_limit_side_len=1536,       # default 960; larger = catches small gutter text
+    text_det_limit_type="max",
+    text_det_thresh=0.2,                # default 0.3; lower catches faint text
+    text_det_box_thresh=0.5,            # default 0.6; lower catches more boxes
+    text_det_unclip_ratio=2.0,          # default; increase to 2.5 if text is getting cut off
+
+    # ── TEXT RECOGNITION ─────────────────────────────────────
+    # For pure English: en_PP-OCRv4_mobile_rec (70.39% English accuracy)
+    # For mixed/unknown: PP-OCRv5_server_rec (64.70% English, but newer architecture)
+    text_recognition_model_name="PP-OCRv5_server_rec",
+    text_rec_score_thresh=0.0,          # don't filter recognition results
+
+    # ── PREPROCESSING ────────────────────────────────────────
+    use_doc_orientation_classify=True,  # safety for rotated scans
+    use_doc_unwarping=False,            # only for photographed/curved docs
+    use_textline_orientation=True,      # catches sideways sidebar text
+
+    # ── STRUCTURE ────────────────────────────────────────────
+    use_table_recognition=True,         # for Education sections laid out as tables
+    use_region_detection=True,
+
+    # ── DISABLE UNUSED ───────────────────────────────────────
     use_chart_recognition=False,
     use_formula_recognition=False,
     use_seal_recognition=False,
