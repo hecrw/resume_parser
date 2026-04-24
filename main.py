@@ -1,17 +1,25 @@
-import uuid
 import os
-import base64
-import shutil
+from functools import wraps
 from typing import List, Dict, Optional
 from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from paddleocr import PPStructureV3
-from pathlib import Path
 from pydantic import BaseModel, Field
 from ollama import chat
+import time
 
+def timer(func):
+    @wraps
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result=func(*args, **kwargs)
+        end = time.time()
+        print(f"time taken to extract data from the resume {(end - start):.2f}")
+        return result
+
+    return wrapper
 app = FastAPI()
-
+        
 class WorkExperience(BaseModel):
     jobTitle: Optional[str] = None
     company: Optional[str] = None
@@ -107,7 +115,6 @@ def extract_text_from_pdf(pdf_path: str) -> str:
     
     try:
         for i, img in enumerate(page_images, start=1):
-            # Save page to temp file
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 page_path = f.name
                 temp_files.append(page_path)
@@ -128,9 +135,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         for path in temp_files:
             if os.path.exists(path):
                 os.remove(path)
-    
+    print("\n\n---\n\n".join(all_pages_text))
     return "\n\n---\n\n".join(all_pages_text)
 
+@timer
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
     if file.content_type != "application/pdf":
