@@ -119,10 +119,14 @@ RESUME TEXT:
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
+    
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     temp_path = None
+    with open(temp_path, "rb") as f:
+        header = f.read(8)
+    print(f"File header: {header!r}", flush=True)
     try:
         await file.seek(0)
         content = await file.read()
