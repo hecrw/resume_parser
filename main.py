@@ -8,6 +8,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
 from ollama import chat
+import pdfplumber
 
 app = FastAPI()
 
@@ -51,6 +52,19 @@ class ResumeData(BaseModel):
     additionalInfo: Dict[str, str] = Field(default_factory=dict)
 
 
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """extracts text from pdf and falls back to ocr if the page is empty"""
+    text_parts = []
+    needs_ocr: bool = False
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text() or ""
+            if len(page_text.strip()) < 50:
+                needs_ocr = True
+            text_parts.append(page_text)
+    return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
+
+
 def convert_pdf_to_images(pdf_path: str) -> list[str]:
     """Convert PDF pages to JPEG images, return file paths."""
     output_dir = os.path.join("outputs", str(uuid.uuid4()))
@@ -72,41 +86,35 @@ def encode_images_to_base64(image_paths: list[str]) -> list[str]:
     return encoded
 
 
-def llm_parser(image_paths: list[str]) -> ResumeData:
-    base64_images = encode_images_to_base64(image_paths)
+def llm_parser(resume_text: str) -> ResumeData:
+    prompt = f"""You are a resume parser. Extract all information from the resume text below into JSON matching the schema.
+        Rules:
+        - Use null for missing fields
+        - Keep dates as written (e.g. "Jan 2020", "2020-01", "Present")
+        - skills, languages, hobbies must be flat string arrays
+        - Capture every work experience and education entry
+        - responsibilities should be individual bullet points, not one long string
 
-    prompt = """
-    You are a resume parser. Extract all information from these resume images.
-    You must respond with ONLY valid JSON matching the schema. No explanation, no markdown, no code blocks.
-    Rules:
-    - Use null for missing fields
-    - Dates as strings (e.g. "Jan 2020", "2020-01", or as written)
-    - List all skills, languages, hobbies as flat string arrays
-    - Capture every work experience and education entry
+        RESUME TEXT:
+        {resume_text}
     """
 
     response = chat(
-        model="qwen3.5:9b",
+        model="qwen2.5:7b",
         format=ResumeData.model_json_schema(),
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-                "images": base64_images,
-            }
-        ],
+        messages=[{"role": "user", "content": prompt}],
         options={
-            "temperature": 0.5,
-            "num_ctx": 16384,
+            "temperature": 0,
+            "num_ctx": 8192,
         },
     )
 
     content = response.message.content
-    print(content)
     if not content or not content.strip():
         raise ValueError("LLM returned an empty response.")
 
     return ResumeData.model_validate_json(content)
+
 
 
 @app.post("/parse_resume/")
@@ -115,21 +123,20 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     temp_path = None
-    image_dir = None
     try:
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             shutil.copyfileobj(file.file, temp_file)
             temp_path = temp_file.name
 
-        image_paths = convert_pdf_to_images(temp_path)
-        image_dir = os.path.dirname(image_paths[0]) if image_paths else None
+        resume_text = extract_text_from_pdf(temp_path)
 
-        resume = llm_parser(image_paths)
+        if not resume_text.strip():
+            raise HTTPException(status_code=422, detail="Could not extract text from PDF")
+
+        resume = llm_parser(resume_text)
         return {"message": "PDF parsed successfully", "content": resume}
 
     finally:
         file.file.close()
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-        if image_dir and os.path.exists(image_dir):
-            shutil.rmtree(image_dir, ignore_errors=True)
