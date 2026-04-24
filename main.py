@@ -93,39 +93,43 @@ structure_pipeline = PPStructureV3(
 )
 
 from pdf2image import convert_from_path
-from PIL import Image
 import tempfile
 
 def extract_text_from_pdf(pdf_path: str) -> str:
-    pages = convert_from_path(pdf_path, dpi=200)
-    if not pages:
+    page_images = convert_from_path(pdf_path, dpi=200)
+    if not page_images:
         return ""
-
-    width = max(p.width for p in pages)
-    total_height = sum(p.height for p in pages)
-    stitched = Image.new("RGB", (width, total_height), "white")
-    y = 0
-    for p in pages:
-        stitched.paste(p, (0, y))
-        y += p.height
-
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-        stitched_path = f.name
-    stitched.save(stitched_path)
-    print(f"Stitched image: {stitched.size}, saved to {stitched_path}", flush=True)
-
+    
+    print(f"PDF has {len(page_images)} pages", flush=True)
+    
+    all_pages_text = []
+    temp_files = []
+    
     try:
-        output = structure_pipeline.predict(input=stitched_path)
-        pages_text = []
-        for res in output:
-            md = res.markdown
-            text = md.get("markdown_texts") or md.get("markdown_text") or ""
-            pages_text.append(text)
-        return "\n\n".join(pages_text)
+        for i, img in enumerate(page_images, start=1):
+            # Save page to temp file
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                page_path = f.name
+                temp_files.append(page_path)
+            img.save(page_path)
+            
+            output = structure_pipeline.predict(input=page_path)
+            
+            page_text = ""
+            for res in output:
+                md = res.markdown
+                text = md.get("markdown_texts") or md.get("markdown_text") or ""
+                page_text += text
+            
+            print(f"  Page {i}: {len(page_text)} chars extracted", flush=True)
+            all_pages_text.append(page_text)
+    
     finally:
-        if os.path.exists(stitched_path):
-            os.remove(stitched_path)
-
+        for path in temp_files:
+            if os.path.exists(path):
+                os.remove(path)
+    
+    return "\n\n---\n\n".join(all_pages_text)
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
