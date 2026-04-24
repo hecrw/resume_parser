@@ -121,6 +121,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
             shutil.copyfileobj(file.file, temp_file)
             temp_path = temp_file.name
+            print("test")
         resume_text = extract_text_from_pdf(temp_path)
 
         if not resume_text.strip():
