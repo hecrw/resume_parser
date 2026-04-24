@@ -92,11 +92,15 @@ structure_pipeline = PPStructureV3(
     use_seal_recognition=False,
 )
 
-result = structure_pipeline.concatenate_markdown_pages(markdown_list)
-print(f"Keys: {list(result.keys())}", flush=True)
-for k, v in result.items():
-    preview = str(v)[:200]
-    print(f"  {k}: {type(v).__name__} = {preview!r}", flush=True)
+def extract_text_from_pdf(pdf_path: str) -> str:
+    output = structure_pipeline.predict(input=pdf_path)
+    markdown_list = [res.markdown for res in output]
+    result = structure_pipeline.concatenate_markdown_pages(markdown_list)
+    print(f"Keys: {list(result.keys())}", flush=True)
+    for k, v in result.items():
+        preview = str(v)[:200]
+        print(f"  {k}: {type(v).__name__} = {preview!r}", flush=True)
+
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
