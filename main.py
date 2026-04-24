@@ -53,21 +53,27 @@ class ResumeData(BaseModel):
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extract text from PDF. Falls back to OCR if pages appear empty."""
     text_parts = []
     needs_ocr = False
-    print(pdf_path)
+    print(f"Opening PDF: {pdf_path}")
+    
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        print(f"Number of pages: {len(pdf.pages)}")
+        for i, page in enumerate(pdf.pages):
             page_text = page.extract_text() or ""
+            print(f"Page {i+1}: {len(page_text)} chars extracted")
+            print(f"Preview: {page_text[:200]!r}")
             if len(page_text.strip()) < 50:
                 needs_ocr = True
             text_parts.append(page_text)
 
     if needs_ocr:
+        print("Falling back to OCR...")
         return ocr_pdf(pdf_path)
 
-    return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
+    result = "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
+    print(f"Total extracted text: {len(result)} chars")
+    return result
 
 
 def ocr_pdf(pdf_path: str) -> str:
