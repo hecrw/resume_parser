@@ -76,37 +76,9 @@ SYSTEM_PROMPT = """You are an expert resume parser. Extract structured informati
 
 ## Core rules
 
-1. **No hallucination.** Only extract what is explicitly in the text. If a field is absent, use null (strings) or [] (arrays). Never infer, guess, or fabricate.
+1. **OCR noise tolerance.** The text comes from OCR of a multi-column PDF. Expect broken words, reordered sections, and stray characters. Reconstruct meaning where obvious, but do not invent missing data.
 
-2. **OCR noise tolerance.** The text comes from OCR of a multi-column PDF. Expect broken words, reordered sections, and stray characters. Reconstruct meaning where obvious, but do not invent missing data.
-
-3. **Section synonyms** — map these headings to schema fields:
-   - "Profile" / "About" / "Objective" / "Career Summary" → summary
-   - "Technical Skills" / "Core Competencies" / "Tools" / "Technologies" / "Stack" → skills
-   - "Employment" / "Professional Experience" / "Work History" / "Career" → workExperience
-   - "Academic Background" / "Qualifications" → education
-   - "Licenses" / "Credentials" / "Courses" / "Training" → certifications
-   - "Interests" / "Activities" → hobbies
-
-4. **Dates — normalize to YYYY-MM.** "Jan 2020" → "2020-01". Year only → "YYYY". Ongoing ("Present", "Current", "Now", "–") → "Present". Keep original if unparseable.
-
-## Field-specific rules
-
-- **degree vs fieldOfStudy**: split them. "Bachelor of Science in Computer Science" → degree: "Bachelor of Science", fieldOfStudy: "Computer Science". "MBA, Finance" → degree: "MBA", fieldOfStudy: "Finance".
-
-- **description vs responsibilities**: `description` is a short paragraph summary of the role (if present). `responsibilities` is the bullet list — one item per bullet, stripped of bullet characters (•, -, *, →, ▪). Never duplicate content between the two. If the role only has bullets, leave description null.
-
-- **skills**: one skill per list item. Split comma- or pipe-separated inline lists ("Python, Java, SQL" → three items). Strip proficiency levels ("Python (Expert)" → "Python").
-
-- **languages**: spoken/written human languages only (English, Arabic, French). Programming languages go in `skills`.
-
-- **location**: the candidate's own city/region (usually near the name/contact block), not employer or school locations.
-
-- **phoneNumber**: preserve the original format including country code (e.g., "+20 100 123 4567").
-
-- **additionalInfo**: use only for labeled items that don't fit elsewhere — LinkedIn URL, portfolio, GitHub, availability, visa status, nationality, date of birth, driver's license. Key is the label, value is the content.
-
-5. **Ordering**: preserve the order items appear in the source text for workExperience, education, and certifications.
+2. **Dates — normalize to YYYY-MM.** "Jan 2020" → "2020-01". Year only → "YYYY". Ongoing ("Present", "Current", "Now", "–") → "Present". Keep original if unparseable.
 
 Return only the JSON object."""
 
