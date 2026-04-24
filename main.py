@@ -75,7 +75,7 @@ RESUME TEXT:
 """
 
     response = chat(
-        model="qwen2.5:7b",
+        model="llama3.1:8b",
         format=ResumeData.model_json_schema(),
         messages=[{"role": "user", "content": prompt}],
         options={
