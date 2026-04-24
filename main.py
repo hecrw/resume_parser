@@ -5,7 +5,8 @@ import shutil
 from typing import List, Dict, Optional
 from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from pdf2image import convert_from_path
+from paddleocr import PPStructureV3
+from pathlib import Path
 from pydantic import BaseModel, Field
 from ollama import chat
 
@@ -51,39 +52,6 @@ class ResumeData(BaseModel):
     additionalInfo: Dict[str, str] = Field(default_factory=dict)
 
 
-from pypdf import PdfReader
-
-def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extract text from PDF. Falls back to OCR if pages appear empty."""
-    text_parts = []
-    needs_ocr = False
-    
-    reader = PdfReader(pdf_path)
-    print(f"PDF has {len(reader.pages)} pages", flush=True)
-    
-    for i, page in enumerate(reader.pages):
-        page_text = page.extract_text() or ""
-        print(f"Page {i+1}: {len(page_text)} chars", flush=True)
-        if len(page_text.strip()) < 50:
-            needs_ocr = True
-        text_parts.append(page_text)
-
-    if needs_ocr:
-        print("Falling back to OCR", flush=True)
-        return ocr_pdf(pdf_path)
-
-    return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
-
-def ocr_pdf(pdf_path: str) -> str:
-    """OCR fallback for scanned PDFs."""
-    from pdf2image import convert_from_path
-    import pytesseract
-
-    images = convert_from_path(pdf_path, dpi=300)
-    texts = [pytesseract.image_to_string(img) for img in images]
-    return "\n\n--- PAGE BREAK ---\n\n".join(texts)
-
-
 def llm_parser(resume_text: str) -> ResumeData:
     prompt = f"""You are a resume parser. Extract all information from the resume text below into JSON matching the schema.
 
@@ -114,6 +82,20 @@ RESUME TEXT:
 
     return ResumeData.model_validate_json(content)
 
+structure_pipeline = PPStructureV3(
+    device="gpu",
+    lang="en",
+    use_doc_orientation_classify=False,
+    use_doc_unwarping=False,
+    use_chart_recognition=False,
+    use_formula_recognition=False,
+    use_seal_recognition=False,
+)
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    output = structure_pipeline.predict(input=pdf_path)
+    markdown_list = [res.markdown for res in output]
+    return structure_pipeline.concatenate_markdown_pages(markdown_list)
 
 @app.post("/parse_resume/")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -122,10 +104,18 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     temp_path = None
     try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
         with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            shutil.copyfileobj(file.file, temp_file)
+            temp_file.write(content)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
             temp_path = temp_file.name
+
         resume_text = extract_text_from_pdf(temp_path)
+        print(f"Extracted {len(resume_text)} chars", flush=True)
 
         if not resume_text.strip():
             raise HTTPException(status_code=422, detail="Could not extract text from PDF")
@@ -134,6 +124,5 @@ async def upload_pdf(file: UploadFile = File(...)):
         return {"message": "PDF parsed successfully", "content": resume}
 
     finally:
-        file.file.close()
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)

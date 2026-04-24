@@ -11,5 +11,11 @@ dependencies = [
     "pdf2image>=1.17.0",
 ]
 
+[[tool.uv.index]]
+name = "paddle-gpu"
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"  # or cu118
+explicit = true
+
 [tool.uv.sources]
 chandra-ocr = { git = "https://github.com/datalab-to/chandra.git" }
+paddlepaddle-gpu = { index = "paddle-gpu" }
