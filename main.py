@@ -59,13 +59,14 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
+            print(page)
             page_text = page.extract_text() or ""
             if len(page_text.strip()) < 50:
                 needs_ocr = True
             text_parts.append(page_text)
 
-    # if needs_ocr:
-    #     return ocr_pdf(pdf_path)
+    if needs_ocr:
+        return ocr_pdf(pdf_path)
 
     return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
 
