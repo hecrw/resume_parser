@@ -87,7 +87,7 @@ def llm_parser(resume_text: str) -> ResumeData:
     """
 
     response = chat(
-        model="qwen2.5:14b",
+        model="qwen2.5:7b",
         format=ResumeData.model_json_schema(),
         messages=[{"role": "user", "content": prompt}],
         options={
@@ -105,7 +105,6 @@ def llm_parser(resume_text: str) -> ResumeData:
 structure_pipeline = PPStructureV3(
     device="gpu",
     lang="en",
-    text_recognition_model_name="PP-OCRv5_server_rec",
     use_doc_orientation_classify=True,
     use_doc_unwarping=False,
     use_chart_recognition=False,
