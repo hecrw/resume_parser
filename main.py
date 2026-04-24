@@ -53,51 +53,46 @@ class ResumeData(BaseModel):
 
 
 def extract_text_from_pdf(pdf_path: str) -> str:
-    """extracts text from pdf and falls back to ocr if the page is empty"""
+    """Extract text from PDF. Falls back to OCR if pages appear empty."""
     text_parts = []
-    needs_ocr: bool = False
+    needs_ocr = False
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text() or ""
             if len(page_text.strip()) < 50:
                 needs_ocr = True
             text_parts.append(page_text)
+
+    # if needs_ocr:
+    #     return ocr_pdf(pdf_path)
+
     return "\n\n--- PAGE BREAK ---\n\n".join(text_parts)
 
 
-def convert_pdf_to_images(pdf_path: str) -> list[str]:
-    """Convert PDF pages to JPEG images, return file paths."""
-    output_dir = os.path.join("outputs", str(uuid.uuid4()))
-    os.makedirs(output_dir, exist_ok=True)
-    convert_from_path(pdf_path, 500, output_folder=output_dir, fmt='JPEG')  
-    return [
-        os.path.join(output_dir, f)
-        for f in sorted(os.listdir(output_dir))
-        if f.lower().endswith(('.jpg', '.jpeg'))
-    ]
+def ocr_pdf(pdf_path: str) -> str:
+    """OCR fallback for scanned PDFs."""
+    from pdf2image import convert_from_path
+    import pytesseract
 
-
-def encode_images_to_base64(image_paths: list[str]) -> list[str]:
-    """Convert image file paths to base64 strings for Ollama."""
-    encoded = []
-    for path in image_paths:
-        with open(path, "rb") as img_file:
-            encoded.append(base64.b64encode(img_file.read()).decode("utf-8"))
-    return encoded
+    images = convert_from_path(pdf_path, dpi=300)
+    texts = [pytesseract.image_to_string(img) for img in images]
+    return "\n\n--- PAGE BREAK ---\n\n".join(texts)
 
 
 def llm_parser(resume_text: str) -> ResumeData:
     prompt = f"""You are a resume parser. Extract all information from the resume text below into JSON matching the schema.
-        Rules:
-        - Use null for missing fields
-        - Keep dates as written (e.g. "Jan 2020", "2020-01", "Present")
-        - skills, languages, hobbies must be flat string arrays
-        - Capture every work experience and education entry
-        - responsibilities should be individual bullet points, not one long string
 
-        RESUME TEXT:
-        {resume_text}
-    """
+Rules:
+- Use null for missing fields
+- Keep dates as written (e.g. "Jan 2020", "2020-01", "Present")
+- skills, languages, hobbies must be flat string arrays
+- Capture every work experience and education entry
+- responsibilities should be individual bullet points, not one long string
+
+RESUME TEXT:
+{resume_text}
+"""
 
     response = chat(
         model="qwen2.5:7b",
@@ -114,7 +109,6 @@ def llm_parser(resume_text: str) -> ResumeData:
         raise ValueError("LLM returned an empty response.")
 
     return ResumeData.model_validate_json(content)
-
 
 
 @app.post("/parse_resume/")
