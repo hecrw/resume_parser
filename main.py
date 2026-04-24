@@ -73,19 +73,14 @@ class ResumeData(BaseModel):
 
 
 SYSTEM_PROMPT = """You are an expert resume parser. Extract structured information from OCR-extracted resume text into JSON matching the provided schema.
-
-## Core rules
-
-1. **OCR noise tolerance.** The text comes from OCR of a multi-column PDF. Expect broken words, reordered sections, and stray characters. Reconstruct meaning where obvious, but do not invent missing data.
-
-2. **Dates — normalize to YYYY-MM.** "Jan 2020" → "2020-01". Year only → "YYYY". Ongoing ("Present", "Current", "Now", "–") → "Present". Keep original if unparseable.
+keep in mind that the keywords in the json can be synonoms to other words
 
 Return only the JSON object."""
 
 
 def llm_parser(resume_text: str) -> ResumeData:
     response = chat(
-        model="qwen2.5:7b",
+        model="qwen2.5:14b",
         format=ResumeData.model_json_schema(),
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
