@@ -185,8 +185,6 @@ structure_pipeline = PPStructureV3(
     use_seal_recognition=False,
 )
 
-# Layout block labels we don't want as text
-SKIP_LABELS = {"image", "figure", "chart", "formula", "seal"}
 
 def extract_text_from_pdf(pdf_path: str) -> str:
     page_images = convert_from_path(pdf_path, dpi=200)
@@ -210,15 +208,12 @@ def extract_text_from_pdf(pdf_path: str) -> str:
             page_lines = []
             for res in output:
                 data = res.json
-                # PaddleOCR sometimes wraps results under a "res" key
                 if isinstance(data, dict) and "res" in data:
                     data = data["res"]
 
                 blocks = data.get("parsing_res_list", []) or []
                 for block in blocks:
                     label = (block.get("block_label") or "").lower()
-                    if label in SKIP_LABELS:
-                        continue
                     content = block.get("block_content", "")
                     if isinstance(content, str) and content.strip():
                         page_lines.append(content.strip())
