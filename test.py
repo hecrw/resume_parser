@@ -1,6 +1,6 @@
 import requests
 
-url = "http://127.0.0.1:8000/parse_resume/"
+url = "http://127.0.0.1:8001/parse_resume/"
 file_path = "test.pdf"
 
 with open(file_path, "rb") as f:

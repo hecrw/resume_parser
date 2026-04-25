@@ -185,42 +185,53 @@ structure_pipeline = PPStructureV3(
     use_seal_recognition=False,
 )
 
+# Layout block labels we don't want as text
+SKIP_LABELS = {"image", "figure", "chart", "formula", "seal"}
+
 def extract_text_from_pdf(pdf_path: str) -> str:
     page_images = convert_from_path(pdf_path, dpi=200)
     if not page_images:
         return ""
-    
+
     print(f"PDF has {len(page_images)} pages", flush=True)
-    
+
     all_pages_text = []
     temp_files = []
-    
+
     try:
         for i, img in enumerate(page_images, start=1):
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 page_path = f.name
                 temp_files.append(page_path)
-                output = structure_pipeline.predict(input=page_path)
-                for res in output:
-                    print(json.dumps(res.json, indent=2, default=str)[:3000])
 
             img.save(page_path)
-            
             output = structure_pipeline.predict(input=page_path)
-            
-            page_text = ""
+
+            page_lines = []
             for res in output:
-                md = res.markdown
-                text = md.get("markdown_texts") or md.get("markdown_text") or ""
-                page_text += text
-            
+                data = res.json
+                # PaddleOCR sometimes wraps results under a "res" key
+                if isinstance(data, dict) and "res" in data:
+                    data = data["res"]
+
+                blocks = data.get("parsing_res_list", []) or []
+                for block in blocks:
+                    label = (block.get("block_label") or "").lower()
+                    if label in SKIP_LABELS:
+                        continue
+                    content = block.get("block_content", "")
+                    if isinstance(content, str) and content.strip():
+                        page_lines.append(content.strip())
+
+            page_text = "\n".join(page_lines)
             print(f"  Page {i}: {len(page_text)} chars extracted", flush=True)
             all_pages_text.append(page_text)
-    
+
     finally:
         for path in temp_files:
             if os.path.exists(path):
                 os.remove(path)
+    print("\n\n---\n\n".join(all_pages_text))
     return "\n\n---\n\n".join(all_pages_text)
 
 @app.post("/parse_resume/")
