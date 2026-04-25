@@ -125,7 +125,7 @@ RESUME_TEMPLATE = {
 
 def llm_parser(resume_text: str) -> ResumeData:
     response = client.chat.completions.create(
-        model="numind/NuExtract-2.0-8B",
+        model="numind/NuExtract-2.0-4B",
         temperature=0,
         messages=[
             {
@@ -200,6 +200,10 @@ def extract_text_from_pdf(pdf_path: str) -> str:
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 page_path = f.name
                 temp_files.append(page_path)
+                output = structure_pipeline.predict(input=page_path)
+                for res in output:
+                    print(json.dumps(res.json, indent=2, default=str)[:3000])
+
             img.save(page_path)
             
             output = structure_pipeline.predict(input=page_path)
@@ -217,7 +221,6 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         for path in temp_files:
             if os.path.exists(path):
                 os.remove(path)
-    print("\n\n---\n\n".join(all_pages_text))
     return "\n\n---\n\n".join(all_pages_text)
 
 @app.post("/parse_resume/")
