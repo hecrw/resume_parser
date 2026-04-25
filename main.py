@@ -72,23 +72,74 @@ class ResumeData(BaseModel):
     additionalInfo: Dict[str, str] = Field(default_factory=dict)
 
 
-SYSTEM_PROMPT = """You are an expert resume parser. Extract structured information from OCR-extracted resume text into JSON matching the provided schema.
-keep in mind that the keywords in the json can be synonoms to other words
+import json
+from openai import OpenAI
 
-Return only the JSON object."""
+client = OpenAI(
+    api_key="EMPTY",
+    base_url="http://0.0.0.0:8000/v1",
+)
+
+RESUME_TEMPLATE = {
+    "candidateName": "verbatim-string",
+    "email": "verbatim-string",
+    "phoneNumber": "verbatim-string",
+    "summary": "string",
+    "location": "verbatim-string",
+    "languages": ["verbatim-string"],
+    "skills": ["verbatim-string"],
+    "workExperience": [
+        {
+            "jobTitle": "verbatim-string",
+            "company": "verbatim-string",
+            "startDate": "verbatim-string",
+            "endDate": "verbatim-string",
+            "location": "verbatim-string",
+            "description": "string",
+            "responsibilities": ["string"],
+        }
+    ],
+    "education": [
+        {
+            "degree": "verbatim-string",
+            "fieldOfStudy": "verbatim-string",
+            "institution": "verbatim-string",
+            "startDate": "verbatim-string",
+            "graduationDate": "verbatim-string",
+            "location": "verbatim-string",
+            "grade": "verbatim-string",
+        }
+    ],
+    "certifications": [
+        {
+            "name": "verbatim-string",
+            "issuingOrganization": "verbatim-string",
+            "issueDate": "verbatim-string",
+            "expirationDate": "verbatim-string",
+            "credentialId": "verbatim-string",
+        }
+    ],
+    "hobbies": ["verbatim-string"],
+}
 
 
 def llm_parser(resume_text: str) -> ResumeData:
-    response = chat(
-        model="qwen2.5:14b",
-        format=ResumeData.model_json_schema(),
+    response = client.chat.completions.create(
+        model="numind/NuExtract-2.0-8B",
+        temperature=0,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"RESUME TEXT:\n\n{resume_text}"},
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": resume_text}],
+            },
         ],
-        options={"temperature": 0, "num_ctx": 16384},
+        extra_body={
+            "chat_template_kwargs": {
+                "template": json.dumps(RESUME_TEMPLATE, indent=4),
+            },
+        },
     )
-    content = response.message.content
+    content = response.choices[0].message.content
     if not content or not content.strip():
         raise ValueError("LLM returned an empty response.")
     return ResumeData.model_validate_json(content)
