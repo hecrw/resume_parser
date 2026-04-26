@@ -1,37 +1,40 @@
 import os
+import json
+import base64
+import asyncio
+import time
+from io import BytesIO
 from functools import wraps
 from typing import List, Dict, Optional
-from pdf2image import convert_from_path
-import tempfile
 from tempfile import NamedTemporaryFile
+
+from pdf2image import convert_from_bytes
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from paddleocr import PPStructureV3
 from pydantic import BaseModel, Field
-from ollama import chat
-import time
-import asyncio
+from openai import OpenAI
+
 
 def timer(func):
     @wraps(func)
     async def async_wrapper(*args, **kwargs):
         start = time.time()
         result = await func(*args, **kwargs)
-        end = time.time()
-        print(f"time taken: {(end - start):.2f}s", flush=True)
+        print(f"time taken: {(time.time() - start):.2f}s", flush=True)
         return result
 
     @wraps(func)
     def sync_wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
-        end = time.time()
-        print(f"time taken: {(end - start):.2f}s", flush=True)
+        print(f"time taken: {(time.time() - start):.2f}s", flush=True)
         return result
 
     return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
+
 app = FastAPI()
-        
+
+
 class WorkExperience(BaseModel):
     jobTitle: Optional[str] = None
     company: Optional[str] = None
@@ -40,6 +43,7 @@ class WorkExperience(BaseModel):
     location: Optional[str] = None
     description: Optional[str] = None
     responsibilities: List[str] = Field(default_factory=list)
+
 
 class Education(BaseModel):
     degree: Optional[str] = None
@@ -50,12 +54,14 @@ class Education(BaseModel):
     location: Optional[str] = None
     grade: Optional[str] = None
 
+
 class Certification(BaseModel):
     name: Optional[str] = None
     issuingOrganization: Optional[str] = None
     issueDate: Optional[str] = None
     expirationDate: Optional[str] = None
     credentialId: Optional[str] = None
+
 
 class ResumeData(BaseModel):
     candidateName: Optional[str] = None
@@ -72,13 +78,12 @@ class ResumeData(BaseModel):
     additionalInfo: Dict[str, str] = Field(default_factory=dict)
 
 
-import json
-from openai import OpenAI
-
 client = OpenAI(
     api_key="EMPTY",
     base_url="http://0.0.0.0:8000/v1",
 )
+
+MODEL_NAME = "numind/NuExtract-2.0-4B"
 
 RESUME_TEMPLATE = {
     "candidateName": "verbatim-string",
@@ -123,111 +128,43 @@ RESUME_TEMPLATE = {
 }
 
 
-def llm_parser(resume_text: str) -> ResumeData:
+def pil_to_data_url(img, fmt: str = "PNG") -> str:
+    """Encode a PIL image as a base64 data URL for the OpenAI image_url block."""
+    buf = BytesIO()
+    img.save(buf, format=fmt)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    mime = "image/png" if fmt.upper() == "PNG" else "image/jpeg"
+    return f"data:{mime};base64,{b64}"
+
+
+def pdf_to_images(pdf_bytes: bytes, dpi: int = 150):
+    """Rasterize PDF pages to PIL images. 150 dpi is plenty for VLM extraction."""
+    return convert_from_bytes(pdf_bytes, dpi=dpi)
+
+
+def llm_parser_from_images(images) -> ResumeData:
+    """Send page images directly to NuExtract — no OCR step."""
+    content = [
+        {"type": "image_url", "image_url": {"url": pil_to_data_url(img)}}
+        for img in images
+    ]
+
     response = client.chat.completions.create(
-        model="numind/NuExtract-2.0-4B",
+        model=MODEL_NAME,
         temperature=0,
-        messages=[
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": resume_text}],
-            },
-        ],
+        messages=[{"role": "user", "content": content}],
         extra_body={
             "chat_template_kwargs": {
                 "template": json.dumps(RESUME_TEMPLATE, indent=4),
             },
         },
     )
-    content = response.choices[0].message.content
-    if not content or not content.strip():
+
+    raw = response.choices[0].message.content
+    if not raw or not raw.strip():
         raise ValueError("LLM returned an empty response.")
-    return ResumeData.model_validate_json(content)
+    return ResumeData.model_validate_json(raw)
 
-structure_pipeline = PPStructureV3(
-    device="gpu",
-    lang="en",
-
-    # ── LAYOUT DETECTION ─────────────────────────────────────
-    # Best layout model — handles multi-column docs well
-    layout_detection_model_name="PP-DocLayout_plus-L",
-    layout_threshold=0.3,              # default 0.5; lower catches narrow sidebars
-    layout_nms=True,
-    layout_unclip_ratio=1.05,           # slight expansion so text near box edges isn't clipped
-    layout_merge_bboxes_mode="large",   # default; "union" if you see sidebars being eaten
-
-    # ── TEXT DETECTION ───────────────────────────────────────
-    text_detection_model_name="PP-OCRv5_server_det",  # higher accuracy than mobile
-    text_det_limit_side_len=1536,       # default 960; larger = catches small gutter text
-    text_det_limit_type="max",
-    text_det_thresh=0.2,                # default 0.3; lower catches faint text
-    text_det_box_thresh=0.5,            # default 0.6; lower catches more boxes
-    text_det_unclip_ratio=2.0,          # default; increase to 2.5 if text is getting cut off
-
-    # ── TEXT RECOGNITION ─────────────────────────────────────
-    # For pure English: en_PP-OCRv4_mobile_rec (70.39% English accuracy)
-    # For mixed/unknown: PP-OCRv5_server_rec (64.70% English, but newer architecture)
-    text_recognition_model_name="PP-OCRv5_server_rec",
-    text_rec_score_thresh=0.0,          # don't filter recognition results
-
-    # ── PREPROCESSING ────────────────────────────────────────
-    use_doc_orientation_classify=True,  # safety for rotated scans
-    use_doc_unwarping=False,            # only for photographed/curved docs
-    use_textline_orientation=True,      # catches sideways sidebar text
-
-    # ── STRUCTURE ────────────────────────────────────────────
-    use_table_recognition=True,         # for Education sections laid out as tables
-    use_region_detection=True,
-
-    # ── DISABLE UNUSED ───────────────────────────────────────
-    use_chart_recognition=False,
-    use_formula_recognition=False,
-    use_seal_recognition=False,
-)
-
-
-def extract_text_from_pdf(pdf_path: str) -> str:
-    page_images = convert_from_path(pdf_path, dpi=200)
-    if not page_images:
-        return ""
-
-    print(f"PDF has {len(page_images)} pages", flush=True)
-
-    all_pages_text = []
-    temp_files = []
-
-    try:
-        for i, img in enumerate(page_images, start=1):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-                page_path = f.name
-                temp_files.append(page_path)
-
-            img.save(page_path)
-            output = structure_pipeline.predict(input=page_path)
-
-            page_lines = []
-            for res in output:
-                data = res.json
-                if isinstance(data, dict) and "res" in data:
-                    data = data["res"]
-
-                blocks = data.get("parsing_res_list", []) or []
-                for block in blocks:
-                    label = (block.get("block_label") or "").lower()
-                    content = block.get("block_content", "")
-                    if isinstance(content, str) and content.strip():
-                        page_lines.append(content.strip())
-
-            page_text = "\n".join(page_lines)
-            print(f"  Page {i}: {len(page_text)} chars extracted", flush=True)
-            all_pages_text.append(page_text)
-
-    finally:
-        for path in temp_files:
-            if os.path.exists(path):
-                os.remove(path)
-    print("\n\n---\n\n".join(all_pages_text))
-    return "\n\n---\n\n".join(all_pages_text)
 
 @app.post("/parse_resume/")
 @timer
@@ -235,27 +172,15 @@ async def upload_pdf(file: UploadFile = File(...)):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-    temp_path = None
-    try:
-        content = await file.read()
-        if not content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-        with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(content)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-            temp_path = temp_file.name
+    images = pdf_to_images(content)
+    if not images:
+        raise HTTPException(status_code=422, detail="Could not rasterize PDF")
 
-        resume_text = extract_text_from_pdf(temp_path)
-        print(f"Extracted {len(resume_text)} chars", flush=True)
+    print(f"PDF has {len(images)} pages", flush=True)
 
-        if not resume_text.strip():
-            raise HTTPException(status_code=422, detail="Could not extract text from PDF")
-
-        resume = llm_parser(resume_text)
-        return {"message": "PDF parsed successfully", "content": resume}
-
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+    resume = llm_parser_from_images(images)
+    return {"message": "PDF parsed successfully", "content": resume}
