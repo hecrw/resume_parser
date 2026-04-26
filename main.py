@@ -7,6 +7,7 @@ from io import BytesIO
 from functools import wraps
 from typing import List, Dict, Optional
 from tempfile import NamedTemporaryFile
+from PIL import Image
 
 from pdf2image import convert_from_bytes
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -138,21 +139,43 @@ def pil_to_data_url(img, fmt: str = "PNG") -> str:
 
 
 def pdf_to_images(pdf_bytes: bytes, dpi: int = 150):
-    """Rasterize PDF pages to PIL images. 150 dpi is plenty for VLM extraction."""
     return convert_from_bytes(pdf_bytes, dpi=dpi)
 
 
+def stitch_vertical(images, gap: int = 20, bg=(255, 255, 255)) -> Image.Image:
+    """Stack PIL images vertically into one tall image."""
+    if len(images) == 1:
+        return images[0]
+
+    max_w = max(im.width for im in images)
+    resized = []
+    for im in images:
+        if im.width != max_w:
+            new_h = int(im.height * (max_w / im.width))
+            im = im.resize((max_w, new_h), Image.LANCZOS)
+        resized.append(im.convert("RGB"))
+
+    total_h = sum(im.height for im in resized) + gap * (len(resized) - 1)
+    canvas = Image.new("RGB", (max_w, total_h), bg)
+    y = 0
+    for im in resized:
+        canvas.paste(im, (0, y))
+        y += im.height + gap
+    return canvas
+
+
 def llm_parser_from_images(images) -> ResumeData:
-    """Send page images directly to NuExtract — no OCR step."""
-    content = [
-        {"type": "image_url", "image_url": {"url": pil_to_data_url(img)}}
-        for img in images
-    ]
+    combined = stitch_vertical(images)
 
     response = client.chat.completions.create(
         model=MODEL_NAME,
         temperature=0,
-        messages=[{"role": "user", "content": content}],
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": pil_to_data_url(combined)}}
+            ],
+        }],
         extra_body={
             "chat_template_kwargs": {
                 "template": json.dumps(RESUME_TEMPLATE, indent=4),
@@ -164,7 +187,6 @@ def llm_parser_from_images(images) -> ResumeData:
     if not raw or not raw.strip():
         raise ValueError("LLM returned an empty response.")
     return ResumeData.model_validate_json(raw)
-
 
 @app.post("/parse_resume/")
 @timer
