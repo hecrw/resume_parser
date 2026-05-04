@@ -1,84 +1,38 @@
-import os
-import sys
 import json
 import time
 from pathlib import Path
 
 import requests
 
-URL_VISION = "http://127.0.0.1:8001/parse_resume_vision/"
-URL_OCR = "http://127.0.0.1:8001/parse_resume_ocr/"
-URL_NATIVE = "http://127.0.0.1:8001/parse_resume_native/"
-URL_PDF = "http://127.0.0.1:8001/parse_resume_pdf/"
-
+URL = "http://127.0.0.1:8001/parse_resume/"
 TESTS_DIR = Path("tests")
 RESULTS_DIR = Path("results")
-
-MODEL = "gemini-2.5-flash"
-
-
-def call_endpoint(url: str, pdf_path: Path, model: str) -> dict:
-    """POST a PDF to the endpoint. Raises on any failure (caller will halt)."""
-    start = time.time()
-    with open(pdf_path, "rb") as f:
-        files = {"file": (pdf_path.name, f, "application/pdf")}
-        data = {"model": model}
-        response = requests.post(url, files=files, data=data, timeout=600)
-    elapsed = time.time() - start
-
-    if not response.ok:
-        raise RuntimeError(
-            f"{url} -> {response.status_code} for {pdf_path.name}: {response.text[:500]}"
-        )
-
-    return {
-        "status_code": response.status_code,
-        "elapsed_seconds": round(elapsed, 2),
-        "response": response.json(),
-    }
-
-
-def model_slug(model: str) -> str:
-    """Filesystem-safe tag for the model name (e.g. NuExtract-2.0-2B)."""
-    return model.split("/")[-1]
+MODEL_SLUG = "gemini-2.5-flash"
 
 
 def main():
-    if not TESTS_DIR.is_dir():
-        print(f"ERROR: {TESTS_DIR}/ not found", file=sys.stderr)
-        sys.exit(1)
-
     pdfs = sorted(p for p in TESTS_DIR.iterdir() if p.suffix.lower() == ".pdf")
-    if not pdfs:
-        print(f"ERROR: no PDFs in {TESTS_DIR}/", file=sys.stderr)
-        sys.exit(1)
-
     RESULTS_DIR.mkdir(exist_ok=True)
-    slug = model_slug(MODEL)
-
-    print(f"Found {len(pdfs)} PDFs. Model: {MODEL}\n")
+    print(f"Found {len(pdfs)} PDFs.\n")
 
     for i, pdf in enumerate(pdfs, start=1):
-        print(f"[{i}/{len(pdfs)}] {pdf.name}")
+        out_path = RESULTS_DIR / f"{pdf.stem}__{MODEL_SLUG}.json"
+        if out_path.exists():
+            print(f"[{i}/{len(pdfs)}] {pdf.name}  (skip)")
+            continue
 
-        # PDF — Gemini receives the file natively (no OCR, no rasterization)
-        print("  → PDF...", flush=True)
-        pdf_result = call_endpoint(URL_PDF, pdf, MODEL)
-        print(f"    done in {pdf_result['elapsed_seconds']}s")
+        print(f"[{i}/{len(pdfs)}] {pdf.name} …", end="", flush=True)
+        start = time.time()
+        with open(pdf, "rb") as f:
+            r = requests.post(URL, files={"file": (pdf.name, f, "application/pdf")}, timeout=300)
+        elapsed = round(time.time() - start, 2)
 
-        record = {
-            "file": pdf.name,
-            "model": MODEL,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "pdf": pdf_result,
-        }
+        if not r.ok:
+            print(f" FAILED ({r.status_code}): {r.text[:200]}")
+            continue
+        print(f" {elapsed}s")
 
-        out_path = RESULTS_DIR / f"{pdf.stem}__{slug}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, indent=2, ensure_ascii=False)
-        print(f"  saved → {out_path}\n")
-
-    print("All done.")
+        out_path.write_text(json.dumps(r.json(), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
