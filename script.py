@@ -9,6 +9,7 @@ import requests
 URL_VISION = "http://127.0.0.1:8001/parse_resume_vision/"
 URL_OCR = "http://127.0.0.1:8001/parse_resume_ocr/"
 URL_NATIVE = "http://127.0.0.1:8001/parse_resume_native/"
+URL_PDF = "http://127.0.0.1:8001/parse_resume_pdf/"
 
 TESTS_DIR = Path("tests")
 RESULTS_DIR = Path("results")
@@ -60,33 +61,16 @@ def main():
     for i, pdf in enumerate(pdfs, start=1):
         print(f"[{i}/{len(pdfs)}] {pdf.name}")
 
-        # OCR
-        print("  → OCR...", flush=True)
-        ocr_result = call_endpoint(URL_OCR, pdf, MODEL)
-        print(f"    done in {ocr_result['elapsed_seconds']}s")
-
-        # Native (pdfplumber, with OCR fallback)
-        # print("  → native...", flush=True)
-        # native_result = call_endpoint(URL_NATIVE, pdf, MODEL)
-        # fallback_note = (
-        #     " (OCR fallback)"
-        #     if native_result["response"].get("used_ocr_fallback")
-        #     else ""
-        # )
-        # print(f"    done in {native_result['elapsed_seconds']}s{fallback_note}")
-
-        # Vision
-        # print("  → vision...", flush=True)
-        # vision_result = call_endpoint(URL_VISION, pdf, MODEL)
-        # print(f"    done in {vision_result['elapsed_seconds']}s")
+        # PDF — Gemini receives the file natively (no OCR, no rasterization)
+        print("  → PDF...", flush=True)
+        pdf_result = call_endpoint(URL_PDF, pdf, MODEL)
+        print(f"    done in {pdf_result['elapsed_seconds']}s")
 
         record = {
             "file": pdf.name,
             "model": MODEL,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "ocr": ocr_result,
-            # "native": native_result,
-            # "vision": vision_result,
+            "pdf": pdf_result,
         }
 
         out_path = RESULTS_DIR / f"{pdf.stem}__{slug}.json"

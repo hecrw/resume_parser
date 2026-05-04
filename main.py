@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 import pdfplumber
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from google import genai as _genai
+from google.genai import types as _genai_types
 from openai import OpenAI
 from paddleocr import PPStructureV3
 from pdf2image import convert_from_bytes
@@ -118,32 +120,47 @@ def _is_gemini(model: str) -> bool:
     return model.lower().startswith("gemini") or model.lower().startswith("models/gemini")
 
 
-# Both clients are lazy — Gemini runs never touch the local vLLM URL, and
+# All clients are lazy — Gemini runs never touch the local vLLM URL, and
 # local-only runs never need a Gemini API key.
-_gemini_client: Optional[OpenAI] = None
+_gemini_openai_client: Optional[OpenAI] = None
 _local_client: Optional[OpenAI] = None
+_gemini_native_client: Optional[_genai.Client] = None
+
+
+def _gemini_api_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY missing — set it in .env or the shell.",
+        )
+    return key
 
 
 def _client_for(model: str) -> OpenAI:
     """Pick the right OpenAI-compatible client for the model. Gemini models
     go through Google's OpenAI-compat endpoint; everything else goes to the
     local vLLM server."""
-    global _gemini_client, _local_client
+    global _gemini_openai_client, _local_client
     if _is_gemini(model):
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="GEMINI_API_KEY missing — set it in .env or the shell.",
-            )
-        if _gemini_client is None:
-            log(f"Creating Gemini client (base={GEMINI_BASE_URL})")
-            _gemini_client = OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
-        return _gemini_client
+        if _gemini_openai_client is None:
+            log(f"Creating Gemini OpenAI-compat client (base={GEMINI_BASE_URL})")
+            _gemini_openai_client = OpenAI(api_key=_gemini_api_key(), base_url=GEMINI_BASE_URL)
+        return _gemini_openai_client
     if _local_client is None:
         log(f"Creating local LLM client (base={LLM_BASE_URL})")
         _local_client = OpenAI(api_key="EMPTY", base_url=LLM_BASE_URL)
     return _local_client
+
+
+def _genai_client() -> _genai.Client:
+    """Native Gemini SDK client — required for sending PDF bytes directly,
+    since the OpenAI-compat layer doesn't support `file` content parts."""
+    global _gemini_native_client
+    if _gemini_native_client is None:
+        log("Creating Gemini native (google-genai) client")
+        _gemini_native_client = _genai.Client(api_key=_gemini_api_key())
+    return _gemini_native_client
 
 
 # ── PaddleOCR pipeline ──────────────────────────────────────
@@ -308,6 +325,36 @@ def llm_parser_from_images(images: List[Image.Image]) -> ResumeData:
     return _call_llm(blocks)
 
 
+def llm_parser_from_pdf_gemini(pdf_bytes: bytes) -> ResumeData:
+    """Send the raw PDF directly to Gemini via the native SDK — no OCR, no
+    rasterization. Gemini does its own document understanding internally."""
+    if not _is_gemini(MODEL_NAME):
+        raise HTTPException(
+            status_code=400,
+            detail=f"PDF endpoint requires a Gemini model; current MODEL_NAME={MODEL_NAME}",
+        )
+    response = _genai_client().models.generate_content(
+        model=MODEL_NAME,
+        contents=[
+            _genai_types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+            "Extract structured data from this resume into the provided JSON schema.",
+        ],
+        config=_genai_types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0,
+            response_mime_type="application/json",
+            response_schema=ResumeData,
+        ),
+    )
+    raw = response.text
+    finish = response.candidates[0].finish_reason if response.candidates else None
+    log(f"FINISH REASON: {finish}")
+    log(f"RAW: {raw!r}")
+    if not raw or not raw.strip():
+        raise ValueError(f"Gemini returned empty response. finish_reason={finish}")
+    return ResumeData.model_validate_json(raw)
+
+
 # ── Endpoint helpers ────────────────────────────────────────
 async def _read_pdf(file: UploadFile) -> bytes:
     if file.content_type != "application/pdf":
@@ -346,6 +393,17 @@ async def parse_resume_vision(file: UploadFile = File(...)):
     resume = llm_parser_from_images(images)
     log(str(resume))
     return {"message": "PDF parsed successfully (vision)", "mode": "vision", "content": resume}
+
+
+@app.post("/parse_resume_pdf/")
+@timer
+async def parse_resume_pdf(file: UploadFile = File(...)):
+    """Send the PDF straight to Gemini — no rasterization, no OCR.
+    Requires MODEL_NAME to be a Gemini model."""
+    content = await _read_pdf(file)
+    resume = llm_parser_from_pdf_gemini(content)
+    log(str(resume))
+    return {"message": "PDF parsed successfully (PDF native)", "mode": "pdf", "content": resume}
 
 
 @app.post("/parse_resume_native/")
