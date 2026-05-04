@@ -13,7 +13,11 @@ URL_NATIVE = "http://127.0.0.1:8001/parse_resume_native/"
 TESTS_DIR = Path("tests")
 RESULTS_DIR = Path("results")
 
-MODEL = "Qwen/Qwen3.5-4B"
+# NuExtract-2.0 is single-image only — route via the OCR text endpoint, which
+# now produces layout-aware markdown (titles / lists / tables) that NuExtract
+# was trained to consume.
+MODEL = "numind/NuExtract-2.0-2B"
+URL = URL_OCR
 
 
 def call_endpoint(url: str, pdf_path: Path, model: str) -> dict:
@@ -57,39 +61,29 @@ def main():
 
     print(f"Found {len(pdfs)} PDFs. Model: {MODEL}\n")
 
+    # Skip PDFs we've already processed for this model — makes re-runs cheap.
     for i, pdf in enumerate(pdfs, start=1):
+        out_path = RESULTS_DIR / f"{pdf.stem}__{slug}.json"
+        if out_path.exists():
+            print(f"[{i}/{len(pdfs)}] {pdf.name}  (skip — already done)")
+            continue
+
         print(f"[{i}/{len(pdfs)}] {pdf.name}")
-
-        # OCR
-        print("  → OCR...", flush=True)
-        ocr_result = call_endpoint(URL_OCR, pdf, MODEL)
-        print(f"    done in {ocr_result['elapsed_seconds']}s")
-
-        # Native (pdfplumber, with OCR fallback)
-        # print("  → native...", flush=True)
-        # native_result = call_endpoint(URL_NATIVE, pdf, MODEL)
-        # fallback_note = (
-        #     " (OCR fallback)"
-        #     if native_result["response"].get("used_ocr_fallback")
-        #     else ""
-        # )
-        # print(f"    done in {native_result['elapsed_seconds']}s{fallback_note}")
-
-        # Vision
-        # print("  → vision...", flush=True)
-        # vision_result = call_endpoint(URL_VISION, pdf, MODEL)
-        # print(f"    done in {vision_result['elapsed_seconds']}s")
+        mode = "ocr" if URL == URL_OCR else ("vision" if URL == URL_VISION else "native")
+        print(f"  → {mode}...", flush=True)
+        try:
+            result = call_endpoint(URL, pdf, MODEL)
+        except RuntimeError as e:
+            print(f"    FAILED: {e}")
+            continue
+        print(f"    done in {result['elapsed_seconds']}s")
 
         record = {
             "file": pdf.name,
             "model": MODEL,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "ocr": ocr_result,
-            # "native": native_result,
-            # "vision": vision_result,
+            mode: result,
         }
-
-        out_path = RESULTS_DIR / f"{pdf.stem}__{slug}.json"
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(record, f, indent=2, ensure_ascii=False)
         print(f"  saved → {out_path}\n")
