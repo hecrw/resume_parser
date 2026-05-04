@@ -20,8 +20,14 @@ from pydantic import BaseModel, Field, ConfigDict
 NATIVE_TEXT_MIN_CHARS = 100
 VISION_TARGET_PIXELS = 800_000
 PDF_RASTER_DPI = 150
-MODEL_NAME = "Qwen/Qwen3.5-4B"
+
+# Set MODEL_NAME to a "gemini-…" model to route through Google's API.
+# Anything else hits the local vLLM server at LLM_BASE_URL.
+MODEL_NAME = "gemini-2.5-flash"
 LLM_BASE_URL = "http://0.0.0.0:8000/v1"
+
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def log(msg: str) -> None:
@@ -106,7 +112,29 @@ Rules:
 """
 
 # ── LLM client ──────────────────────────────────────────────
-client = OpenAI(api_key="EMPTY", base_url=LLM_BASE_URL)
+def _is_gemini(model: str) -> bool:
+    return model.lower().startswith("gemini") or model.lower().startswith("models/gemini")
+
+
+_local_client = OpenAI(api_key="EMPTY", base_url=LLM_BASE_URL)
+_gemini_client: Optional[OpenAI] = None
+
+
+def _client_for(model: str) -> OpenAI:
+    """Pick the right OpenAI-compatible client for the model. Gemini models
+    go through Google's OpenAI-compat endpoint; everything else goes to the
+    local vLLM server."""
+    global _gemini_client
+    if _is_gemini(model):
+        if not GEMINI_API_KEY:
+            raise HTTPException(
+                status_code=500,
+                detail="GEMINI_API_KEY env var is not set — cannot call Gemini.",
+            )
+        if _gemini_client is None:
+            _gemini_client = OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL)
+        return _gemini_client
+    return _local_client
 
 
 # ── PaddleOCR pipeline ──────────────────────────────────────
@@ -227,7 +255,7 @@ def normalize_for_vision(img: Image.Image, target_pixels: int = VISION_TARGET_PI
 
 # ── LLM parsers ─────────────────────────────────────────────
 def _call_llm(user_content) -> ResumeData:
-    response = client.chat.completions.create(
+    response = _client_for(MODEL_NAME).chat.completions.create(
         model=MODEL_NAME,
         temperature=0,
         messages=[

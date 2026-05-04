@@ -13,7 +13,7 @@ URL_NATIVE = "http://127.0.0.1:8001/parse_resume_native/"
 TESTS_DIR = Path("tests")
 RESULTS_DIR = Path("results")
 
-MODEL = "Qwen/Qwen3.5-4B"
+MODEL = "gemini-2.5-flash"
 
 
 def call_endpoint(url: str, pdf_path: Path, model: str) -> dict:
