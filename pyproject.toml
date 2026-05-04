@@ -10,6 +10,7 @@ dependencies = [
     "ollama>=0.6.1",
     "pdf2image>=1.17.0",
     "pdfplumber>=0.11.9",
+    "python-dotenv>=1.2.2",
 ]
 
 [[tool.uv.index]]

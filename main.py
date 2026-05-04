@@ -8,12 +8,16 @@ from functools import wraps
 from typing import Dict, List, Optional
 
 import pdfplumber
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from openai import OpenAI
 from paddleocr import PPStructureV3
 from pdf2image import convert_from_bytes
 from PIL import Image
 from pydantic import BaseModel, Field, ConfigDict
+
+# Load .env before reading any environment variables.
+load_dotenv()
 
 
 # ── Config ──────────────────────────────────────────────────
@@ -25,9 +29,7 @@ PDF_RASTER_DPI = 150
 # Anything else hits the local vLLM server at LLM_BASE_URL.
 MODEL_NAME = "gemini-2.5-flash"
 LLM_BASE_URL = "http://0.0.0.0:8000/v1"
-
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def log(msg: str) -> None:
@@ -116,24 +118,31 @@ def _is_gemini(model: str) -> bool:
     return model.lower().startswith("gemini") or model.lower().startswith("models/gemini")
 
 
-_local_client = OpenAI(api_key="EMPTY", base_url=LLM_BASE_URL)
+# Both clients are lazy — Gemini runs never touch the local vLLM URL, and
+# local-only runs never need a Gemini API key.
 _gemini_client: Optional[OpenAI] = None
+_local_client: Optional[OpenAI] = None
 
 
 def _client_for(model: str) -> OpenAI:
     """Pick the right OpenAI-compatible client for the model. Gemini models
     go through Google's OpenAI-compat endpoint; everything else goes to the
     local vLLM server."""
-    global _gemini_client
+    global _gemini_client, _local_client
     if _is_gemini(model):
-        if not GEMINI_API_KEY:
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
             raise HTTPException(
                 status_code=500,
-                detail="GEMINI_API_KEY env var is not set — cannot call Gemini.",
+                detail="GEMINI_API_KEY missing — set it in .env or the shell.",
             )
         if _gemini_client is None:
-            _gemini_client = OpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL)
+            log(f"Creating Gemini client (base={GEMINI_BASE_URL})")
+            _gemini_client = OpenAI(api_key=api_key, base_url=GEMINI_BASE_URL)
         return _gemini_client
+    if _local_client is None:
+        log(f"Creating local LLM client (base={LLM_BASE_URL})")
+        _local_client = OpenAI(api_key="EMPTY", base_url=LLM_BASE_URL)
     return _local_client
 
 
