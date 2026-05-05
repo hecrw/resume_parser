@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -39,7 +39,6 @@ class Certification(BaseModel):
 
 
 class ResumeData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
     candidateName: Optional[str] = None
     email: Optional[str] = None
     phoneNumber: Optional[str] = None
